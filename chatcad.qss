@@ -1,0 +1,114 @@
+/* Chat CAD — tema escuro minimalista */
+
+#chatcad, #chatcad QWidget#chatHolder, #chatcad QStackedWidget > QWidget {
+    background: #1b1c1f;
+    color: #e6e6e6;
+    font-size: 9.5pt;
+}
+
+#chatcad QLabel { background: transparent; color: #e6e6e6; }
+#chatcad #muted { color: #8b8f98; font-size: 8.5pt; }
+
+/* cabeçalho */
+#chatcad #header { background: #1b1c1f; border-bottom: 1px solid #2a2c31; }
+#chatcad #badge {
+    background: #f2f2f2; color: #111; font-weight: 700; font-size: 7.5pt;
+    padding: 1px 4px; border-radius: 3px;
+}
+#chatcad #brand { font-weight: 600; font-size: 10.5pt; }
+#chatcad #dotIdle { color: #5b5f68; font-size: 8pt; }
+#chatcad #dotOk { color: #3fb950; font-size: 8pt; }
+#chatcad #dotBusy { color: #e8743b; font-size: 8pt; }
+#chatcad QToolButton#iconBtn {
+    background: transparent; color: #a9adb6; border: none; border-radius: 6px;
+    padding: 2px 6px; font-size: 11pt;
+}
+#chatcad QToolButton#iconBtn:hover { background: #2a2c31; color: #fff; }
+
+/* aviso de configuração */
+#chatcad #banner { background: #2a2116; border-bottom: 1px solid #4a3519; }
+#chatcad #bannerText { color: #e9c79a; font-size: 8.5pt; }
+#chatcad QPushButton#ghostBtn {
+    background: #33373e; color: #f0f0f0; border: 1px solid #41454d;
+    border-radius: 6px; padding: 4px 10px; font-size: 8.5pt;
+}
+#chatcad QPushButton#ghostBtn:hover { background: #3c4048; }
+
+/* tela inicial */
+#chatcad #kicker { color: #e8743b; font-weight: 600; font-size: 8.5pt; }
+#chatcad #title { font-size: 13.5pt; font-weight: 600; padding: 2px 0 2px 0; }
+#chatcad QFrame#card {
+    background: transparent; border: none; border-top: 1px solid #2a2c31; border-radius: 0;
+}
+#chatcad QFrame#card:hover { background: #24262a; border-radius: 6px; }
+#chatcad #cardIcon { color: #a9adb6; font-size: 11pt; }
+#chatcad #cardTitle { font-weight: 600; }
+#chatcad #cardSub { color: #8b8f98; font-size: 8.5pt; }
+
+/* conversa */
+#chatcad QScrollArea#chatScroll { border: none; background: #1b1c1f; }
+#chatcad #userBubble {
+    background: #2b2d33; border-radius: 10px; padding: 7px 10px;
+}
+#chatcad #answer { padding: 2px 0; }
+#chatcad #toolRow { color: #8b8f98; font-size: 8.5pt; padding-left: 2px; }
+#chatcad #toolRow[error="true"] { color: #f0857a; }
+#chatcad #note { color: #6e727b; font-size: 8pt; }
+#chatcad #errorNote {
+    color: #f0b4ad; background: #2c1d1c; border: 1px solid #4d2a27;
+    border-radius: 8px; padding: 6px 8px; font-size: 8.5pt;
+}
+#chatcad #thumb { border: 1px solid #2e3036; border-radius: 6px; }
+
+/* área de digitação */
+#chatcad #composerArea { background: #1b1c1f; border-top: 1px solid #2a2c31; }
+#chatcad QComboBox#quick {
+    background: #22242a; border: 1px solid #2e3036; border-radius: 7px;
+    padding: 5px 8px; color: #d6d8dc;
+}
+#chatcad QComboBox#quick:hover { border-color: #41454d; }
+#chatcad QPushButton#chip {
+    background: #1f2a36; color: #9cc7f0; border: 1px solid #2c4560;
+    border-radius: 11px; padding: 3px 10px; text-align: left; font-size: 8.5pt;
+}
+#chatcad QPushButton#chip[off="true"] { background: #22242a; color: #6e727b; border-color: #2e3036; }
+#chatcad #composer {
+    background: #22242a; border: 1px solid #2e3036; border-radius: 10px;
+}
+#chatcad QPlainTextEdit#prompt {
+    background: transparent; border: none; color: #e6e6e6; font-size: 9.5pt;
+    selection-background-color: #3d5a80;
+}
+#chatcad QComboBox#pill {
+    background: transparent; border: none; color: #a9adb6; padding: 2px 4px;
+    font-size: 8.5pt;
+}
+#chatcad QComboBox#pill:hover { color: #fff; }
+#chatcad QComboBox::drop-down { border: none; width: 12px; }
+#chatcad QComboBox QAbstractItemView {
+    background: #22242a; color: #e6e6e6; border: 1px solid #2e3036;
+    selection-background-color: #33373e; outline: none;
+}
+#chatcad QPushButton#send {
+    background: #e6e6e6; color: #111; border: none; border-radius: 15px;
+    font-weight: 700; font-size: 11pt;
+    min-width: 30px; max-width: 30px; min-height: 30px; max-height: 30px; padding: 0;
+}
+#chatcad QPushButton#send:hover { background: #ffffff; }
+
+#chatcad QScrollBar:vertical { background: transparent; width: 8px; margin: 2px; }
+#chatcad QScrollBar::handle:vertical { background: #34363c; border-radius: 3px; min-height: 30px; }
+#chatcad QScrollBar::add-line:vertical, #chatcad QScrollBar::sub-line:vertical { height: 0; }
+
+/* anexos */
+#chatcad QFrame#attach { background: #2b2d33; border: 1px solid #3a3d45; border-radius: 8px; }
+#chatcad QFrame#attach:hover { border-color: #6b7080; }
+#chatcad QToolButton#attachX {
+    background: rgba(0,0,0,0.65); color: #fff; border: none; border-radius: 9px; font-size: 9pt; padding: 0;
+}
+#chatcad QToolButton#plusBtn {
+    background: transparent; color: #a9adb6; border: 1px solid #2e3036; border-radius: 13px;
+    min-width: 24px; max-width: 24px; min-height: 24px; max-height: 24px; padding: 0; font-size: 11pt;
+}
+#chatcad QToolButton#plusBtn:hover { color: #fff; border-color: #4a4e57; }
+#chatcad QToolButton#plusBtn::menu-indicator { image: none; width: 0; }

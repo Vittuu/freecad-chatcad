@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no" ?>
+<package format="1" xmlns="https://wiki.freecad.org/Package_Metadata">
+  <name>Chat CAD</name>
+  <description>AI agent side panel for FreeCAD: chat with Claude Code, Codex or Antigravity to model parametric parts, point at faces, and sketch on the 3D view.</description>
+  <version>0.1.0</version>
+  <date>2026-10-11</date>
+  <maintainer email="">Vittuu</maintainer>
+  <license file="LICENSE">LGPL-2.1</license>
+  <url type="repository" branch="main">https://github.com/Vittuu/freecad-chatcad</url>
+  <url type="bugtracker">https://github.com/Vittuu/freecad-chatcad/issues</url>
+  <url type="readme">https://github.com/Vittuu/freecad-chatcad/blob/main/README.md</url>
+  <freecadmin>1.0.0</freecadmin>
+  <tag>AI</tag>
+  <tag>LLM</tag>
+  <tag>MCP</tag>
+  <tag>assistant</tag>
+  <tag>chat</tag>
+
+  <content>
+    <other>
+      <name>Chat CAD</name>
+    </other>
+  </content>
+</package>
