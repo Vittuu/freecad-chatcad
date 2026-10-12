@@ -1,114 +1,313 @@
-/* Chat CAD — tema escuro minimalista */
+/* Chat CAD — tema. Tokens @nome trocados por chatcad_theme.load_qss().
+   Aplicado no QDockWidget "ChatCAD" (barra de título + painel + menus + dicas)
+   e de novo em SketchDialog / ImageViewer (filhos da janela principal).
+   Grade 4 px · tipos 11/12/13/15/18 px · raios 4/6/8/10.
+   @brand (laranja) só para marca e "trabalhando"; anéis de foco de teclado = @focus (acento do FreeCAD).
+   ORDEM IMPORTA: regras genéricas primeiro (empate de especificidade = vence a última). */
 
-#chatcad, #chatcad QWidget#chatHolder, #chatcad QStackedWidget > QWidget {
-    background: #1b1c1f;
-    color: #e6e6e6;
-    font-size: 9.5pt;
+/* ---------- base --------------------------------------------------------------- */
+QLabel { background: transparent; color: @text; }
+QWidget#ccPanel, QWidget#ccEmpty, QWidget#ccChatHolder, QStackedWidget#ccPages,
+QDialog#ccSketch, QDialog#ccViewer {
+    background: @bg; color: @text; font-size: 13px;
+}
+QScrollArea#ccScroll { background: @bg; border: none; }
+QScrollArea#ccScroll QWidget#qt_scrollarea_viewport { background: @bg; }
+
+QToolTip {
+    background: @raised; color: @text; border: 1px solid @border2; border-radius: 4px;
+    padding: 4px 8px; font-size: 12px; font-weight: normal;
 }
 
-#chatcad QLabel { background: transparent; color: #e6e6e6; }
-#chatcad #muted { color: #8b8f98; font-size: 8.5pt; }
+/* ---------- reset do que a folha global do FreeCAD injeta ----------------------- */
+QPushButton { min-width: 0; min-height: 0; }
+QToolButton { background: transparent; border: 1px solid transparent; padding: 0; }
+QToolButton::menu-indicator, QPushButton::menu-indicator { image: none; width: 0; height: 0; }
 
-/* cabeçalho */
-#chatcad #header { background: #1b1c1f; border-bottom: 1px solid #2a2c31; }
-#chatcad #badge {
-    background: #f2f2f2; color: #111; font-weight: 700; font-size: 7.5pt;
-    padding: 1px 4px; border-radius: 3px;
+/* ---------- barra de título (titleBarWidget do dock) ---------------------------- */
+QFrame#ccTitle { background: @title; border: none; border-bottom: 1px solid @border; }
+QLabel#ccBadge {
+    background: @inverse; color: @inverse_text; font-size: 10px; font-weight: 700;
+    padding: 1px 4px; border-radius: 4px;
 }
-#chatcad #brand { font-weight: 600; font-size: 10.5pt; }
-#chatcad #dotIdle { color: #5b5f68; font-size: 8pt; }
-#chatcad #dotOk { color: #3fb950; font-size: 8pt; }
-#chatcad #dotBusy { color: #e8743b; font-size: 8pt; }
-#chatcad QToolButton#iconBtn {
-    background: transparent; color: #a9adb6; border: none; border-radius: 6px;
-    padding: 2px 6px; font-size: 11pt;
+QLabel#ccName { font-size: 14px; font-weight: 600; }
+QLabel#ccState { color: @text3; font-size: 11px; }
+QLabel#ccDot {
+    min-width: 6px; max-width: 6px; min-height: 6px; max-height: 6px;
+    border-radius: 3px; background: @text4;
 }
-#chatcad QToolButton#iconBtn:hover { background: #2a2c31; color: #fff; }
+QLabel#ccDot[state="ok"]   { background: @success; }
+QLabel#ccDot[state="busy"] { background: @brand; }
+QLabel#ccDot[state="off"]  { background: @danger; }
+QFrame#ccTitleSep { background: @border2; border: none; min-width: 1px; max-width: 1px; min-height: 14px; max-height: 14px; }
+QToolButton#ccIconBtn {
+    border-radius: 6px; min-width: 26px; max-width: 26px; min-height: 26px; max-height: 26px;
+}
+QToolButton#ccWinBtn {
+    border-radius: 4px; min-width: 20px; max-width: 20px; min-height: 20px; max-height: 20px;
+}
+QToolButton#ccIconBtn:hover, QToolButton#ccWinBtn:hover { background: @hover; }
+QToolButton#ccIconBtn:pressed, QToolButton#ccWinBtn:pressed { background: @active; }
+QToolButton#ccIconBtn:focus, QToolButton#ccWinBtn:focus { border-color: @focus; }
 
-/* aviso de configuração */
-#chatcad #banner { background: #2a2116; border-bottom: 1px solid #4a3519; }
-#chatcad #bannerText { color: #e9c79a; font-size: 8.5pt; }
-#chatcad QPushButton#ghostBtn {
-    background: #33373e; color: #f0f0f0; border: 1px solid #41454d;
-    border-radius: 6px; padding: 4px 10px; font-size: 8.5pt;
+/* ---------- aviso (banner) --------------------------------------------------------- */
+QFrame#ccBanner { background: @warn_soft; border: none; border-bottom: 1px solid @warn_border; }
+QFrame#ccBanner[kind="error"] { background: @danger_soft; border-bottom-color: @danger_border; }
+QFrame#ccBanner[kind="info"]  { background: @info_soft; border-bottom-color: @info_border; }
+QLabel#ccBannerTitle { color: @text; font-size: 12px; font-weight: 600; }
+QLabel#ccBannerText  { color: @warn_text; font-size: 12px; }
+QFrame#ccBanner[kind="error"] QLabel#ccBannerText { color: @danger_text; }
+QFrame#ccBanner[kind="info"]  QLabel#ccBannerText { color: @info_text; }
+QPushButton#ccBtn {
+    background: @raised; color: @text; border: 1px solid @border2; border-radius: 6px;
+    min-height: 26px; max-height: 26px; padding: 0 10px; font-size: 12px; font-weight: 500;
 }
-#chatcad QPushButton#ghostBtn:hover { background: #3c4048; }
+QPushButton#ccBtn:hover   { background: @hover; border-color: @border3; }
+QPushButton#ccBtn:pressed { background: @active; }
+QPushButton#ccBtn:focus   { border-color: @focus; }
+QToolButton#ccMiniBtn {
+    border-radius: 5px; min-width: 22px; max-width: 22px; min-height: 22px; max-height: 22px;
+}
+QToolButton#ccMiniBtn:hover { background: @hover; }
+QToolButton#ccMiniBtn:focus { border-color: @focus; }
 
-/* tela inicial */
-#chatcad #kicker { color: #e8743b; font-weight: 600; font-size: 8.5pt; }
-#chatcad #title { font-size: 13.5pt; font-weight: 600; padding: 2px 0 2px 0; }
-#chatcad QFrame#card {
-    background: transparent; border: none; border-top: 1px solid #2a2c31; border-radius: 0;
+/* ---------- tela inicial ------------------------------------------------------------ */
+QLabel#ccKicker   { color: @brand; font-size: 12px; font-weight: 600; }
+QLabel#ccHeadline { color: @text; font-size: 18px; font-weight: 600; }
+QLabel#ccLead     { color: @text2; font-size: 13px; }
+QFrame#ccCard {
+    background: transparent; border: 1px solid transparent; border-top-color: @border; border-radius: 0;
 }
-#chatcad QFrame#card:hover { background: #24262a; border-radius: 6px; }
-#chatcad #cardIcon { color: #a9adb6; font-size: 11pt; }
-#chatcad #cardTitle { font-weight: 600; }
-#chatcad #cardSub { color: #8b8f98; font-size: 8.5pt; }
+QFrame#ccCard[last="true"] { border-bottom-color: @border; }
+QFrame#ccCard:hover { background: @surface; border-color: @surface; border-radius: 8px; }
+QFrame#ccCard:focus { border: 1px solid @focus; border-radius: 8px; }
+QLabel#ccTile {
+    background: @raised; border: 1px solid @border; border-radius: 6px;
+    min-width: 28px; max-width: 28px; min-height: 28px; max-height: 28px;
+}
+QLabel#ccTile[hot="true"] { background: @hover; border-color: @border3; }
+QLabel#ccCardTitle { color: @text; font-size: 13px; font-weight: 500; }
+QLabel#ccCardSub   { color: @text3; font-size: 12px; }
+QLabel#ccTip       { color: @text3; font-size: 12px; }
+QLabel#ccFootnote  { color: @text3; font-size: 11px; }
 
-/* conversa */
-#chatcad QScrollArea#chatScroll { border: none; background: #1b1c1f; }
-#chatcad #userBubble {
-    background: #2b2d33; border-radius: 10px; padding: 7px 10px;
+/* ---------- conversa ---------------------------------------------------------------- */
+QFrame#ccUserBubble {
+    background: @raised; border: 1px solid @border; border-radius: 10px; border-top-right-radius: 4px;
 }
-#chatcad #answer { padding: 2px 0; }
-#chatcad #toolRow { color: #8b8f98; font-size: 8.5pt; padding-left: 2px; }
-#chatcad #toolRow[error="true"] { color: #f0857a; }
-#chatcad #note { color: #6e727b; font-size: 8pt; }
-#chatcad #errorNote {
-    color: #f0b4ad; background: #2c1d1c; border: 1px solid #4d2a27;
-    border-radius: 8px; padding: 6px 8px; font-size: 8.5pt;
+QLabel#ccUserText { color: @text; font-size: 13px; }
+QLabel#ccCtxTag {
+    background: @surface; color: @text2; border: 1px solid @border2; border-radius: 4px;
+    padding: 0 6px; font-size: 11px;
 }
-#chatcad #thumb { border: 1px solid #2e3036; border-radius: 6px; }
+QLabel#ccAvatar {
+    background: @brand_soft; border-radius: 5px;
+    min-width: 18px; max-width: 18px; min-height: 18px; max-height: 18px;
+}
+QLabel#ccWho     { color: @text; font-size: 12px; font-weight: 600; }
+QLabel#ccWhoMeta { color: @text3; font-size: 12px; }
+QLabel#ccModeTag { color: @text2; border: 1px solid @border2; border-radius: 4px; padding: 0 4px; font-size: 11px; }
 
-/* área de digitação */
-#chatcad #composerArea { background: #1b1c1f; border-top: 1px solid #2a2c31; }
-#chatcad QComboBox#quick {
-    background: #22242a; border: 1px solid #2e3036; border-radius: 7px;
-    padding: 5px 8px; color: #d6d8dc;
+/* grupo de passos */
+QFrame#ccSteps { background: transparent; border: 1px solid @border; border-radius: 8px; }
+QFrame#ccStepsHead { background: transparent; border: 1px solid transparent; border-radius: 7px; }
+QFrame#ccStepsHead:hover { background: @surface; }
+QFrame#ccStepsHead:focus { border-color: @focus; }
+QLabel#ccStepsTitle { color: @text2; font-size: 12px; font-weight: 500; }
+QLabel#ccStepsTitle[state="error"] { color: @warn; }
+QLabel#ccStepsMeta  { color: @text3; font-size: 11px; }
+QFrame#ccStepList { background: transparent; border: none; border-top: 1px solid @border; }
+QFrame#ccStep { background: transparent; border: 1px solid transparent; border-radius: 6px; }
+QFrame#ccStep:hover { background: @surface; }
+QFrame#ccStep:focus { border-color: @focus; }
+QLabel#ccStepText { color: @text2; font-size: 12px; }
+QLabel#ccStepText[state="error"] { color: @danger_text; }
+QLabel#ccStepHint { color: @text3; font-size: 12px; }
+QLabel#ccStepTime { color: @text3; font-size: 11px; }
+QFrame#ccStepBody { background: transparent; border: none; }
+QLabel#ccCaption  { color: @text3; font-size: 10px; font-weight: 700; }
+QPlainTextEdit#ccCode {
+    background: @code_bg; color: @code_text; border: 1px solid @border; border-radius: 6px;
+    padding: 4px 6px; selection-background-color: @selection; selection-color: @text;
 }
-#chatcad QComboBox#quick:hover { border-color: #41454d; }
-#chatcad QPushButton#chip {
-    background: #1f2a36; color: #9cc7f0; border: 1px solid #2c4560;
-    border-radius: 11px; padding: 3px 10px; text-align: left; font-size: 8.5pt;
+QPlainTextEdit#ccCode[error="true"] { color: @danger_text; border-color: @danger_border; }
+QPlainTextEdit#ccThinking {
+    background: transparent; color: @text3; border: none; border-left: 2px solid @border2;
+    padding: 0 0 0 8px; font-size: 12px; font-style: italic;
 }
-#chatcad QPushButton#chip[off="true"] { background: #22242a; color: #6e727b; border-color: #2e3036; }
-#chatcad #composer {
-    background: #22242a; border: 1px solid #2e3036; border-radius: 10px;
-}
-#chatcad QPlainTextEdit#prompt {
-    background: transparent; border: none; color: #e6e6e6; font-size: 9.5pt;
-    selection-background-color: #3d5a80;
-}
-#chatcad QComboBox#pill {
-    background: transparent; border: none; color: #a9adb6; padding: 2px 4px;
-    font-size: 8.5pt;
-}
-#chatcad QComboBox#pill:hover { color: #fff; }
-#chatcad QComboBox::drop-down { border: none; width: 12px; }
-#chatcad QComboBox QAbstractItemView {
-    background: #22242a; color: #e6e6e6; border: 1px solid #2e3036;
-    selection-background-color: #33373e; outline: none;
-}
-#chatcad QPushButton#send {
-    background: #e6e6e6; color: #111; border: none; border-radius: 15px;
-    font-weight: 700; font-size: 11pt;
-    min-width: 30px; max-width: 30px; min-height: 30px; max-height: 30px; padding: 0;
-}
-#chatcad QPushButton#send:hover { background: #ffffff; }
 
-#chatcad QScrollBar:vertical { background: transparent; width: 8px; margin: 2px; }
-#chatcad QScrollBar::handle:vertical { background: #34363c; border-radius: 3px; min-height: 30px; }
-#chatcad QScrollBar::add-line:vertical, #chatcad QScrollBar::sub-line:vertical { height: 0; }
+/* resposta */
+QTextBrowser#ccAnswer {
+    background: transparent; border: none; color: @text; font-size: 13px;
+    selection-background-color: @selection; selection-color: @text;
+}
+QLabel#ccThumb { background: @surface; border: 1px solid @border2; border-radius: 8px; }
+QLabel#ccThumbCaption { color: @text3; font-size: 11px; }
+QLabel#ccFooter { color: @text3; font-size: 11px; }
 
-/* anexos */
-#chatcad QFrame#attach { background: #2b2d33; border: 1px solid #3a3d45; border-radius: 8px; }
-#chatcad QFrame#attach:hover { border-color: #6b7080; }
-#chatcad QToolButton#attachX {
-    background: rgba(0,0,0,0.65); color: #fff; border: none; border-radius: 9px; font-size: 9pt; padding: 0;
+QFrame#ccCallout { background: @surface; border: 1px solid @border2; border-radius: 8px; }
+QFrame#ccCallout[kind="error"] { background: @danger_soft; border-color: @danger_border; }
+QFrame#ccCallout[kind="warn"]  { background: @warn_soft; border-color: @warn_border; }
+QFrame#ccCallout[kind="info"]  { background: @info_soft; border-color: @info_border; }
+QLabel#ccCalloutText { color: @text2; font-size: 12px; }
+QFrame#ccCallout[kind="error"] QLabel#ccCalloutText { color: @danger_text; }
+QFrame#ccCallout[kind="warn"]  QLabel#ccCalloutText { color: @warn_text; }
+QFrame#ccCallout[kind="info"]  QLabel#ccCalloutText { color: @info_text; }
+
+/* ---------- área de digitação --------------------------------------------------------- */
+QFrame#ccComposerArea { background: @bg; border: none; border-top: 1px solid @border; }
+QPushButton#ccQuick {
+    background: transparent; color: @text2; border: 1px solid @border2; border-radius: 8px;
+    min-height: 32px; max-height: 32px; padding: 0 28px 0 10px; text-align: left; font-size: 12px;
 }
-#chatcad QToolButton#plusBtn {
-    background: transparent; color: #a9adb6; border: 1px solid #2e3036; border-radius: 13px;
-    min-width: 24px; max-width: 24px; min-height: 24px; max-height: 24px; padding: 0; font-size: 11pt;
+QPushButton#ccQuick:hover { background: @surface; color: @text; border-color: @border3; }
+QPushButton#ccQuick:focus { border-color: @focus; }
+
+QFrame#ccComposer { background: @surface; border: 1px solid @border2; border-radius: 10px; }
+QFrame#ccComposer[focus="true"] { border-color: @border3; }
+QFrame#ccComposer[plan="true"]  { border-style: dashed; }
+QFrame#ccComposer[drop="true"]  { border: 1px dashed @brand; }
+QPlainTextEdit#ccPrompt {
+    background: transparent; border: none; color: @text; font-size: 13px; padding: 0;
+    selection-background-color: @selection; selection-color: @text;
+    placeholder-text-color: @text3;   /* sem isto o Qt usa a cor do texto a 50% */
 }
-#chatcad QToolButton#plusBtn:hover { color: #fff; border-color: #4a4e57; }
-#chatcad QToolButton#plusBtn::menu-indicator { image: none; width: 0; }
+QToolButton#ccChip {
+    background: @raised; color: @text2; border: 1px solid @border2; border-radius: 6px;
+    min-height: 22px; max-height: 22px; padding: 0 8px 0 6px; font-size: 11px;
+}
+QToolButton#ccChip:hover { color: @text; border-color: @border3; }
+QToolButton#ccChip:focus { border-color: @focus; }
+QToolButton#ccChip[off="true"] { background: transparent; color: @text3; border-style: dashed; }
+QFrame#ccAttach { background: @raised; border: 1px solid @border2; border-radius: 8px; }
+QFrame#ccAttach:hover { border-color: @border3; }
+QToolButton#ccAttachX {
+    background: @scrim; border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 8px;
+    min-width: 16px; max-width: 16px; min-height: 16px; max-height: 16px;
+}
+QLabel#ccWarnLine { color: @warn_text; font-size: 11px; }
+
+QToolButton#ccRound {
+    border: 1px solid @border2; border-radius: 13px;
+    min-width: 26px; max-width: 26px; min-height: 26px; max-height: 26px;
+}
+QToolButton#ccRound:hover { background: @hover; border-color: @border3; }
+QToolButton#ccRound:focus { border-color: @focus; }
+QToolButton#ccPill {
+    color: @text2; border-radius: 6px; min-height: 26px; max-height: 26px;
+    padding: 0 18px 0 6px; font-size: 12px;
+}
+QToolButton#ccPill:hover, QToolButton#ccPill:pressed { background: @hover; color: @text; }
+QToolButton#ccPill:focus { border-color: @focus; }
+QToolButton#ccSend {
+    background: @inverse; border: none; border-radius: 14px;
+    min-width: 28px; max-width: 28px; min-height: 28px; max-height: 28px;
+}
+QToolButton#ccSend:hover    { background: @inverse_hover; }
+QToolButton#ccSend:disabled { background: @hover; }
+QToolButton#ccSend[busy="true"]       { background: @surface; border: 1px solid @border3; }
+QToolButton#ccSend[busy="true"]:hover { background: @active; }
+QToolButton#ccSend:focus { border: 2px solid @focus; }
+
+/* ---------- menus (popup_menu() => translúcido p/ ter raio) ----------------------------- */
+QMenu {
+    background: @raised; color: @text; border: 1px solid @border2; border-radius: 8px;
+    padding: 4px; font-size: 12px;
+}
+QMenu::item { background: transparent; color: @text; padding: 6px 24px 6px 8px; border-radius: 4px; }
+QMenu::item:selected { background: @hover; }
+QMenu::item:disabled { color: @text4; }
+QMenu::icon { padding-left: 6px; }
+QMenu::icon:checked { background: transparent; border: none; }
+QMenu::indicator { width: 0; height: 0; }
+QMenu::separator { height: 1px; background: @border2; margin: 4px 6px; }
+QLabel#ccMenuSection { color: @text3; font-size: 11px; font-weight: 600; padding: 8px 8px 2px 8px; }
+
+/* ---------- rolagem fina (zera setas de 14px do FreeCAD) -------------------------------- */
+QScrollBar:vertical { background: transparent; width: 10px; margin: 0; border: none; }
+QScrollBar::handle:vertical {
+    background: @scroll; border: none; border-radius: 3px; min-height: 32px; margin: 2px 2px 2px 4px;
+}
+QScrollBar::handle:vertical:hover { background: @scroll_hover; }
+QScrollBar:horizontal { background: transparent; height: 10px; margin: 0; border: none; }
+QScrollBar::handle:horizontal {
+    background: @scroll; border: none; border-radius: 3px; min-width: 32px; margin: 4px 2px 2px 2px;
+}
+QScrollBar::handle:horizontal:hover { background: @scroll_hover; }
+QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; border: none; background: none; }
+QScrollBar::up-arrow, QScrollBar::down-arrow, QScrollBar::left-arrow, QScrollBar::right-arrow {
+    image: none; border-image: none; width: 0; height: 0;
+}
+QScrollBar::add-page, QScrollBar::sub-page { background: none; }
+
+/* ---------- janela de desenho ------------------------------------------------------------- */
+QFrame#ccSketchBar  { background: @title; border: none; border-bottom: 1px solid @border; }
+QFrame#ccSketchFoot { background: @title; border: none; border-top: 1px solid @border; }
+QFrame#ccSeg { background: @surface; border: 1px solid @border2; border-radius: 8px; }
+QFrame#ccSeg QToolButton#ccSegBtn {
+    color: @text2; border-radius: 6px; min-height: 26px; max-height: 26px; padding: 0 10px 0 8px; font-size: 12px;
+}
+QFrame#ccSeg QToolButton#ccSegBtn:hover   { color: @text; background: @hover; }
+QFrame#ccSeg QToolButton#ccSegBtn:checked { color: @text; background: @active; }
+QFrame#ccSeg QToolButton#ccSegBtn:focus   { border-color: @focus; }
+QFrame#ccSeg QToolButton#ccSegBtn[iconOnly="true"] { padding: 0 6px; }
+QFrame#ccVSep { background: @border2; border: none; min-width: 1px; max-width: 1px; min-height: 20px; max-height: 20px; }
+QToolButton#ccFlat {
+    color: @text2; border-radius: 6px; min-height: 28px; max-height: 28px; padding: 0 10px 0 8px; font-size: 12px;
+}
+QToolButton#ccFlat:hover    { background: @hover; color: @text; }
+QToolButton#ccFlat:disabled { color: @text4; }
+QToolButton#ccFlat:focus    { border-color: @focus; }
+QToolButton#ccFlat[iconOnly="true"] { padding: 0 6px; }
+QLabel#ccHint { color: @text3; font-size: 12px; }
+QPushButton#ccPrimary {
+    background: @inverse; color: @inverse_text; border: none; border-radius: 8px;
+    min-height: 32px; max-height: 32px; padding: 0 14px; font-size: 13px; font-weight: 600;
+}
+QPushButton#ccPrimary:hover { background: @inverse_hover; }
+QPushButton#ccSecondary {
+    background: transparent; color: @text; border: 1px solid @border2; border-radius: 8px;
+    min-height: 32px; max-height: 32px; padding: 0 14px; font-size: 13px;
+}
+QPushButton#ccSecondary:hover { background: @hover; border-color: @border3; }
+QPushButton#ccPrimary:focus, QPushButton#ccSecondary:focus { border: 2px solid @focus; }
+
+/* ---------- diálogos de formulário (IA local, texto do desenho) ------------------------- */
+QDialog#ccSettings, QInputDialog { background: @bg; color: @text; font-size: 13px; }
+QDialog#ccSettings QLabel, QInputDialog QLabel { color: @text2; font-size: 12px; }
+/* (mesmo id + mais tipos ganharia: repetir o escopo do diálogo nas regras abaixo) */
+QDialog#ccSettings QLabel#ccDlgTitle { color: @text; font-size: 15px; font-weight: 600; }
+QDialog#ccSettings QLabel#ccHint     { color: @text3; font-size: 12px; }
+QDialog#ccSettings QLabel#ccSection  { color: @text3; font-size: 10px; font-weight: 700; padding-top: 2px; }
+QFrame#ccHair { background: @border; border: none; min-height: 1px; max-height: 1px; }
+QDialog#ccSettings QLabel#ccTestOut { color: @text3; font-size: 12px; }
+QDialog#ccSettings QLabel#ccTestOut[state="ok"]    { color: @text2; }
+QDialog#ccSettings QLabel#ccTestOut[state="error"] { color: @danger_text; }
+QDialog#ccSettings QLineEdit, QDialog#ccSettings QComboBox, QDialog#ccSettings QSpinBox,
+QInputDialog QLineEdit {
+    background: @surface; color: @text; border: 1px solid @border2; border-radius: 6px;
+    min-height: 26px; padding: 0 8px; font-size: 12px;
+    selection-background-color: @selection; selection-color: @text;
+}
+QDialog#ccSettings QLineEdit:hover, QDialog#ccSettings QComboBox:hover, QDialog#ccSettings QSpinBox:hover,
+QInputDialog QLineEdit:hover { border-color: @border3; }
+QDialog#ccSettings QLineEdit:focus, QDialog#ccSettings QComboBox:focus, QDialog#ccSettings QSpinBox:focus,
+QInputDialog QLineEdit:focus { border-color: @focus; }
+QDialog#ccSettings QLineEdit:disabled, QDialog#ccSettings QComboBox:disabled { color: @text4; background: @bg; }
+QDialog#ccSettings QComboBox { padding-right: 24px; }
+QDialog#ccSettings QComboBox::drop-down { border: none; width: 22px; background: transparent; }
+/* a seta é pintada pelo Combo (chatcad_settings); a da folha do FreeCAD não pode somar outra */
+QDialog#ccSettings QComboBox::down-arrow { image: none; border: none; width: 0; height: 0; }
+QDialog#ccSettings QComboBox QAbstractItemView {
+    background: @raised; color: @text; border: 1px solid @border2; outline: none; padding: 4px;
+    selection-background-color: @hover; selection-color: @text;
+}
+QDialog#ccSettings QSpinBox { padding-right: 20px; }
+QDialog#ccSettings QCheckBox { color: @text; font-size: 12px; spacing: 8px; }
+QDialog#ccSettings QCheckBox:disabled { color: @text4; }
+QInputDialog QPushButton {
+    background: transparent; color: @text; border: 1px solid @border2; border-radius: 8px;
+    min-height: 30px; max-height: 30px; padding: 0 14px; font-size: 13px;
+}
+QInputDialog QPushButton:hover { background: @hover; border-color: @border3; }
+QInputDialog QPushButton:default { background: @inverse; color: @inverse_text; border: none; font-weight: 600; }

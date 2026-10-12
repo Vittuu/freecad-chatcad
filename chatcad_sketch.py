@@ -1,6 +1,13 @@
 """Tela para rabiscar por cima de uma imagem (vista do FreeCAD, print, foto ou folha em branco)."""
 
-from PySide import QtCore, QtGui, QtWidgets
+try:
+    from PySide import QtCore, QtGui, QtWidgets          # shim do FreeCAD
+except ImportError:                                       # testes offscreen fora do FreeCAD
+    from PySide6 import QtCore, QtGui, QtWidgets
+
+import chatcad_icons as I
+import chatcad_theme as TH
+from chatcad_theme import T
 
 COLORS = [("Vermelho", "#ff3b30"), ("Azul", "#2f7bff"), ("Verde", "#34c759"),
           ("Amarelo", "#ffd60a"), ("Preto", "#111111")]
@@ -18,6 +25,8 @@ class Canvas(QtWidgets.QWidget):
         self.ink = QtGui.QImage(self.base.size(), QtGui.QImage.Format_ARGB32)
         self.ink.fill(QtCore.Qt.transparent)
         self.undo_stack = []
+        self.redo_stack = []
+        self._pending = None          # cópia da tinta no clique; só vira passo de desfazer se algo for desenhado
         self.color = QtGui.QColor(COLORS[0][1])
         self.pen_width = SIZES[1][1]
         self.tool = "pen"  # pen | line | arrow | text
@@ -32,13 +41,16 @@ class Canvas(QtWidgets.QWidget):
     # geometria tela <-> imagem ------------------------------------------------
     def _target(self):
         img = self.base.size()
-        scaled = img.scaled(self.size(), QtCore.Qt.KeepAspectRatio)
+        room = (self.size() - QtCore.QSize(32, 32)).expandedTo(QtCore.QSize(1, 1))   # respiro em volta
+        scaled = img.scaled(room, QtCore.Qt.KeepAspectRatio)
         x = (self.width() - scaled.width()) / 2
         y = (self.height() - scaled.height()) / 2
         return QtCore.QRectF(x, y, scaled.width(), scaled.height())
 
     def _to_img(self, pos):
         r = self._target()
+        if self.base.isNull() or r.width() <= 0 or r.height() <= 0:     # imagem vazia: sem escala
+            return QtCore.QPointF(pos)
         sx = self.base.width() / r.width()
         sy = self.base.height() / r.height()
         return QtCore.QPointF((pos.x() - r.x()) * sx, (pos.y() - r.y()) * sy)
@@ -51,13 +63,28 @@ class Canvas(QtWidgets.QWidget):
         return pen
 
     # desenho -----------------------------------------------------------------
-    def _push_undo(self):
-        self.undo_stack.append(self.ink.copy())
+    def _push_undo(self, snapshot=None):
+        self.undo_stack.append(self.ink.copy() if snapshot is None else snapshot)
         del self.undo_stack[:-30]
+        self.redo_stack = []
+
+    def _commit_pending(self):
+        """Primeiro traço de verdade desde o clique: aí sim entra no desfazer (e zera o refazer)."""
+        if self._pending is not None:
+            self._push_undo(self._pending)
+            self._pending = None
 
     def undo(self):
         if self.undo_stack:
+            self.redo_stack.append(self.ink.copy())
             self.ink = self.undo_stack.pop()
+            self.update()
+            self.changed.emit()
+
+    def redo(self):
+        if self.redo_stack:
+            self.undo_stack.append(self.ink.copy())
+            self.ink = self.redo_stack.pop()
             self.update()
             self.changed.emit()
 
@@ -80,11 +107,17 @@ class Canvas(QtWidgets.QWidget):
             painter.drawLine(l2)
 
     def mousePressEvent(self, e):
-        if e.button() != QtCore.Qt.LeftButton:
+        if e.button() != QtCore.Qt.LeftButton or self.base.isNull():
             return
         p = self._to_img(e.position())
         if self.tool == "text":
-            text, ok = QtWidgets.QInputDialog.getText(self, "Texto", "O que escrever (ex.: 60 mm):")
+            dlg = QtWidgets.QInputDialog(self)                 # herda a folha do diálogo (ccSketch)
+            dlg.setWindowTitle("Texto")
+            dlg.setLabelText("O que escrever (ex.: 60 mm):")
+            dlg.setOkButtonText("Inserir")
+            dlg.setCancelButtonText("Cancelar")
+            ok = dlg.exec() == QtWidgets.QDialog.Accepted
+            text = dlg.textValue()
             if ok and text.strip():
                 self._push_undo()
                 painter = QtGui.QPainter(self.ink)
@@ -99,7 +132,7 @@ class Canvas(QtWidgets.QWidget):
                 self.update()
                 self.changed.emit()
             return
-        self._push_undo()
+        self._pending = self.ink.copy()       # clique sem traço não gasta desfazer nem apaga o refazer
         self.drawing = True
         self.start = self.last = p
 
@@ -108,6 +141,9 @@ class Canvas(QtWidgets.QWidget):
             return
         p = self._to_img(e.position())
         if self.tool == "pen":
+            if p == self.last:
+                return
+            self._commit_pending()
             painter = QtGui.QPainter(self.ink)
             painter.setRenderHint(QtGui.QPainter.Antialiasing)
             painter.setPen(self._pen())
@@ -122,28 +158,36 @@ class Canvas(QtWidgets.QWidget):
         if not self.drawing:
             return
         self.drawing = False
-        if self.tool in ("line", "arrow") and self.preview:
+        a, b = self.preview or (None, None)
+        if self.tool in ("line", "arrow") and a is not None and QtCore.QLineF(a, b).length() > 0:
+            self._commit_pending()
             painter = QtGui.QPainter(self.ink)
             painter.setRenderHint(QtGui.QPainter.Antialiasing)
             painter.setPen(self._pen())
-            a, b = self.preview
             if self.tool == "arrow":
                 self._draw_arrow(painter, a, b)
             else:
                 painter.drawLine(a, b)
             painter.end()
+        drew = self._pending is None
+        self._pending = None
         self.preview = None
         self.update()
-        self.changed.emit()
+        if drew:
+            self.changed.emit()
 
     def paintEvent(self, _e):
         painter = QtGui.QPainter(self)
-        painter.fillRect(self.rect(), QtGui.QColor("#141518"))
+        painter.fillRect(self.rect(), QtGui.QColor(T.get("code_bg") or "#141414"))
         r = self._target()
         painter.setRenderHint(QtGui.QPainter.SmoothPixmapTransform)
         painter.drawImage(r, self.base)
         painter.drawImage(r, self.ink)
-        if self.preview:
+        painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 24) if T.get("dark", True)
+                                  else QtGui.QColor(0, 0, 0, 30), 1))
+        painter.setBrush(QtCore.Qt.NoBrush)
+        painter.drawRect(r.adjusted(-0.5, -0.5, 0.5, 0.5))
+        if self.preview and self.base.width() > 0 and self.base.height() > 0:
             painter.save()
             painter.translate(r.x(), r.y())
             painter.scale(r.width() / self.base.width(), r.height() / self.base.height())
@@ -165,86 +209,229 @@ class Canvas(QtWidgets.QWidget):
         return out
 
 
+class Swatch(QtWidgets.QAbstractButton):
+    """Bolinha de cor (QSS não desenha anel com afastamento, então é pintada à mão)."""
+
+    def __init__(self, name, hexa, parent=None):
+        super().__init__(parent)
+        self.color = QtGui.QColor(hexa)
+        self.setCheckable(True)
+        self.setToolTip(name)
+        self.setAccessibleName(name)
+        self.setFixedSize(24, 24)
+        self.setCursor(QtCore.Qt.PointingHandCursor)
+        self.setFocusPolicy(QtCore.Qt.TabFocus)
+        self.setAttribute(QtCore.Qt.WA_Hover)
+
+    def sizeHint(self):
+        return QtCore.QSize(24, 24)
+
+    def paintEvent(self, _e):
+        p = QtGui.QPainter(self)
+        p.setRenderHint(QtGui.QPainter.Antialiasing)
+        r = QtCore.QRectF(self.rect()).adjusted(1, 1, -1, -1)
+        if self.isChecked() or self.underMouse() or self.hasFocus():
+            ring = T["focus"] if self.hasFocus() else (T["text"] if self.isChecked() else T["border3"])
+            p.setPen(QtGui.QPen(QtGui.QColor(ring), 1.5))
+            p.setBrush(QtCore.Qt.NoBrush)
+            p.drawEllipse(r.adjusted(0.75, 0.75, -0.75, -0.75))
+        p.setPen(QtGui.QPen(QtGui.QColor(T["border3"]), 1))          # contorno: preto continua visível
+        p.setBrush(self.color)
+        p.drawEllipse(r.adjusted(4, 4, -4, -4))
+        p.end()
+
+
+def segmented(parent, items, show_text):
+    """Botões exclusivos num trilho. items: (chave, ícone, rótulo, atalho)."""
+    frame = QtWidgets.QFrame()
+    frame.setObjectName("ccSeg")
+    frame.setAttribute(QtCore.Qt.WA_StyledBackground)
+    h = QtWidgets.QHBoxLayout(frame)
+    h.setContentsMargins(2, 2, 2, 2)
+    h.setSpacing(2)
+    group = QtWidgets.QButtonGroup(parent)
+    group.setExclusive(True)
+    buttons = {}
+    for key, ic, label, sc in items:
+        b = QtWidgets.QToolButton()
+        b.setObjectName("ccSegBtn")
+        b.setAutoRaise(True)
+        b.setCheckable(True)
+        b.setIcon(I.icon(ic, T["text2"], 16, hover=T["text"], on=ic, on_color=T["text"]))
+        b.setIconSize(QtCore.QSize(16, 16))
+        b.setToolTip(f"{label} ({sc})")
+        b.setAccessibleName(label)
+        b.setCursor(QtCore.Qt.PointingHandCursor)
+        b.setFocusPolicy(QtCore.Qt.TabFocus)
+        if show_text:
+            b.setText(label)
+            b.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
+        QtGui.QShortcut(QtGui.QKeySequence(sc), parent, activated=b.click)
+        group.addButton(b)
+        h.addWidget(b)
+        buttons[key] = b
+    frame.group = group
+    return frame, buttons
+
+
+def vsep():
+    s = QtWidgets.QFrame()
+    s.setObjectName("ccVSep")
+    return s
+
+
+def flat_btn(icon_name, text, tip):
+    b = QtWidgets.QToolButton()
+    b.setObjectName("ccFlat")
+    b.setAutoRaise(True)
+    b.setText(text)
+    b.setIcon(I.icon(icon_name, T["text2"], 16, hover=T["text"]))
+    b.setIconSize(QtCore.QSize(16, 16))
+    b.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
+    b.setToolTip(tip)
+    b.setAccessibleName(text)
+    b.setCursor(QtCore.Qt.PointingHandCursor)
+    b.setFocusPolicy(QtCore.Qt.TabFocus)
+    return b
+
+
 class SketchDialog(QtWidgets.QDialog):
     def __init__(self, image, title="Desenhar", parent=None):
         super().__init__(parent)
+        TH.ensure()
         self.setWindowTitle(f"Chat CAD — {title}")
-        self.setObjectName("chatcadSketch")
-        self.resize(1000, 760)
-        self.setStyleSheet("""
-            #chatcadSketch { background: #1b1c1f; }
-            #chatcadSketch QLabel { color: #a9adb6; }
-            #chatcadSketch QToolButton {
-                background: #22242a; color: #e6e6e6; border: 1px solid #2e3036;
-                border-radius: 7px; padding: 5px 10px; }
-            #chatcadSketch QToolButton:checked { background: #3a3d45; border-color: #6b7080; }
-            #chatcadSketch QToolButton:hover { border-color: #4a4e57; }
-            #chatcadSketch QPushButton { background: #33373e; color: #f0f0f0; border: 1px solid #41454d;
-                border-radius: 7px; padding: 6px 14px; }
-            #chatcadSketch QPushButton#primary { background: #e6e6e6; color: #111; border: none; font-weight: 600; }
-        """)
+        self.setObjectName("ccSketch")
+        self.setAttribute(QtCore.Qt.WA_StyledBackground)
+        self.setStyleSheet(TH.load_qss())          # filho da janela principal: não herda a folha do dock
+        self.setFont(TH.ui_font(13))
         self.canvas = Canvas(image)
 
-        bar = QtWidgets.QHBoxLayout()
-        bar.setSpacing(6)
-        tools = QtWidgets.QButtonGroup(self)
-        for label, key, tip in (("✎ Caneta", "pen", "Traço livre"), ("╱ Linha", "line", "Linha reta"),
-                                ("➜ Seta", "arrow", "Seta apontando"), ("T Texto", "text", "Escrever uma medida")):
-            b = QtWidgets.QToolButton()
-            b.setText(label)
-            b.setToolTip(tip)
-            b.setCheckable(True)
-            b.setChecked(key == "pen")
-            b.clicked.connect(lambda _=False, k=key: setattr(self.canvas, "tool", k))
-            tools.addButton(b)
-            bar.addWidget(b)
-        bar.addSpacing(10)
-        colors = QtWidgets.QButtonGroup(self)
-        for name, hexa in COLORS:
-            b = QtWidgets.QToolButton()
-            b.setToolTip(name)
-            b.setCheckable(True)
-            b.setChecked(hexa == COLORS[0][1])
-            b.setFixedSize(26, 26)
-            b.setStyleSheet(f"QToolButton {{ background: {hexa}; border-radius: 13px; border: 2px solid #1b1c1f; }}"
-                            f"QToolButton:checked {{ border: 2px solid #ffffff; }}")
-            b.clicked.connect(lambda _=False, h=hexa: setattr(self.canvas, "color", QtGui.QColor(h)))
-            colors.addButton(b)
-            bar.addWidget(b)
-        bar.addSpacing(10)
-        size = QtWidgets.QComboBox()
-        for name, w in SIZES:
-            size.addItem(name, w)
-        size.setCurrentIndex(1)
-        size.currentIndexChanged.connect(lambda i: setattr(self.canvas, "pen_width", size.itemData(i)))
-        bar.addWidget(size)
-        bar.addStretch()
-        undo = QtWidgets.QToolButton()
-        undo.setText("↶ Desfazer")
-        undo.setShortcut(QtGui.QKeySequence.Undo)
-        undo.clicked.connect(self.canvas.undo)
-        clear = QtWidgets.QToolButton()
-        clear.setText("Limpar")
-        clear.clicked.connect(self.canvas.clear)
-        bar.addWidget(undo)
-        bar.addWidget(clear)
+        bar = QtWidgets.QFrame()
+        bar.setObjectName("ccSketchBar")
+        bar.setAttribute(QtCore.Qt.WA_StyledBackground)
+        h = QtWidgets.QHBoxLayout(bar)
+        h.setContentsMargins(12, 8, 12, 8)
+        h.setSpacing(12)
+        tools, self.tool_buttons = segmented(self, [("pen", "pencil", "Caneta", "P"),
+                                                    ("line", "line", "Linha", "L"),
+                                                    ("arrow", "arrow", "Seta", "S"),
+                                                    ("text", "type", "Texto", "T")], show_text=True)
+        for k, b in self.tool_buttons.items():
+            b.clicked.connect(lambda _=False, k=k: setattr(self.canvas, "tool", k))
+        self.tool_buttons["pen"].setChecked(True)
 
-        hint = QtWidgets.QLabel("Rabisque onde quer a mudança e escreva medidas. Depois descreva o pedido no chat.")
-        bottom = QtWidgets.QHBoxLayout()
-        bottom.addWidget(hint, 1)
+        colors = QtWidgets.QHBoxLayout()
+        colors.setSpacing(4)
+        self.color_group = QtWidgets.QButtonGroup(self)
+        self.swatches = []
+        for i, (name, hexa) in enumerate(COLORS):
+            s = Swatch(name, hexa)
+            s.setToolTip(f"{name} ({i + 1})")
+            s.setChecked(i == 0)
+            self.color_group.addButton(s)
+            s.clicked.connect(lambda _=False, h_=hexa: setattr(self.canvas, "color", QtGui.QColor(h_)))
+            QtGui.QShortcut(QtGui.QKeySequence(str(i + 1)), self, activated=s.click)
+            colors.addWidget(s)
+            self.swatches.append(s)
+
+        # espessura com Ctrl+1/2/3 (1-5 são as cores)
+        size_items = [(w, ic, label, f"Ctrl+{n}")
+                      for n, (ic, (label, w)) in enumerate(zip(("dot-s", "dot-m", "dot-l"), SIZES), 1)]
+        sizes, self.size_buttons = segmented(self, size_items, show_text=False)
+        for w_, b in self.size_buttons.items():
+            b.clicked.connect(lambda _=False, w_=w_: setattr(self.canvas, "pen_width", w_))
+        self.size_buttons[SIZES[1][1]].setChecked(True)
+
+        self.undo_btn = flat_btn("undo", "Desfazer", "Desfazer (Ctrl+Z)")
+        self.undo_btn.setShortcut(QtGui.QKeySequence.Undo)
+        self.undo_btn.clicked.connect(self.canvas.undo)
+        self.redo_btn = flat_btn("redo", "Refazer", "Refazer (Ctrl+Y)")
+        self.redo_btn.setShortcut(QtGui.QKeySequence("Ctrl+Y"))
+        self.redo_btn.clicked.connect(self.canvas.redo)
+        self.clear_btn = clear = flat_btn("trash", "Limpar", "Apagar todos os traços")
+        clear.clicked.connect(self.canvas.clear)
+        self.canvas.changed.connect(self._sync_history)
+        h.addWidget(tools)
+        h.addWidget(vsep())
+        h.addLayout(colors)
+        h.addWidget(vsep())
+        h.addWidget(sizes)
+        h.addStretch()
+        h.addWidget(self.undo_btn)
+        h.addWidget(self.redo_btn)
+        h.addWidget(clear)
+
+        foot = QtWidgets.QFrame()
+        foot.setObjectName("ccSketchFoot")
+        foot.setAttribute(QtCore.Qt.WA_StyledBackground)
+        f = QtWidgets.QHBoxLayout(foot)
+        f.setContentsMargins(16, 10, 12, 10)
+        f.setSpacing(8)
+        f.addWidget(I.icon_label("info", T["text3"], 14))
+        hint = QtWidgets.QLabel("Marque onde quer a mudança e escreva as medidas. Depois descreva o pedido no chat.")
+        hint.setObjectName("ccHint")
+        hint.setWordWrap(True)
+        f.addWidget(hint, 1)
         cancel = QtWidgets.QPushButton("Cancelar")
+        cancel.setObjectName("ccSecondary")
+        cancel.setCursor(QtCore.Qt.PointingHandCursor)
+        cancel.setAutoDefault(False)
         cancel.clicked.connect(self.reject)
         ok = QtWidgets.QPushButton("Anexar ao chat")
-        ok.setObjectName("primary")
+        ok.setObjectName("ccPrimary")
+        ok.setCursor(QtCore.Qt.PointingHandCursor)
         ok.setDefault(True)
+        ok.setIcon(I.icon("paperclip", T["inverse_text"], 14))
+        ok.setIconSize(QtCore.QSize(14, 14))
+        ok.setToolTip("Anexar ao chat (Ctrl+Enter)")
         ok.clicked.connect(self.accept)
-        bottom.addWidget(cancel)
-        bottom.addWidget(ok)
+        QtGui.QShortcut(QtGui.QKeySequence("Ctrl+Return"), self, activated=self.accept)
+        f.addWidget(cancel)
+        f.addWidget(ok)
 
         lay = QtWidgets.QVBoxLayout(self)
-        lay.addLayout(bar)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+        lay.addWidget(bar)
         lay.addWidget(self.canvas, 1)
-        lay.addLayout(bottom)
+        lay.addWidget(foot)
+        self._sync_history()
+        # foco inicial no desenho (anéis de foco só aparecem navegando com Tab)
+        self.canvas.setFocusPolicy(QtCore.Qt.ClickFocus)
+        self.canvas.setFocus(QtCore.Qt.OtherFocusReason)
+
+        # janela estreita (notebook com escala 125-150 %): ferramentas só com ícone (a dica tem o nome).
+        # A barra aceita encolher até a largura "só ícones"; o resizeEvent troca o estilo.
+        self._bar, self._compact = bar, None
+        self._set_compact(True)
+        compact_w = bar.minimumSizeHint().width()
+        self._set_compact(False)
+        self._full_w = bar.sizeHint().width()
+        bar.setMinimumWidth(compact_w)
+        screen = (parent.screen() if parent is not None else None) or QtWidgets.QApplication.primaryScreen()
+        avail = screen.availableGeometry() if screen is not None else QtCore.QRect(0, 0, 1280, 800)
+        self.resize(min(1000, int(avail.width() * 0.92)), min(760, int(avail.height() * 0.9)))
+        self._set_compact(self.width() < self._full_w)
+
+    def _set_compact(self, on):
+        if on == self._compact:
+            return
+        self._compact = on
+        style = QtCore.Qt.ToolButtonIconOnly if on else QtCore.Qt.ToolButtonTextBesideIcon
+        for b in list(self.tool_buttons.values()) + [self.undo_btn, self.redo_btn, self.clear_btn]:
+            b.setToolButtonStyle(style)
+            TH.set_prop(b, "iconOnly", on)
+        for b in self.size_buttons.values():           # espessuras: sempre só ícone
+            TH.set_prop(b, "iconOnly", True)
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        if getattr(self, "_compact", None) is not None:
+            self._set_compact(self.width() < self._full_w)
+
+    def _sync_history(self):
+        self.undo_btn.setEnabled(bool(self.canvas.undo_stack))
+        self.redo_btn.setEnabled(bool(self.canvas.redo_stack))
 
     def image(self):
         return self.canvas.result()

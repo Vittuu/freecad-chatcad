@@ -7,7 +7,10 @@ import json
 import os
 import shutil
 
-from PySide import QtCore
+try:
+    from PySide import QtCore                       # shim do FreeCAD
+except ImportError:                                 # testes offscreen fora do FreeCAD
+    from PySide6 import QtCore
 
 ADDON_DIR = os.path.dirname(os.path.abspath(__file__))
 WINGET = r"%LOCALAPPDATA%\Microsoft\WinGet\Packages"
@@ -19,6 +22,13 @@ Ferramentas: use apenas as ferramentas do servidor MCP "freecad" (execute_code, 
 Não use terminal nem edite arquivos por fora. O FreeCAD já está aberto; o documento ativo é o
 que o usuário está vendo.
 
+Documento: trabalhe SÓ no documento ativo (App.ActiveDocument, o "Documento ativo" do contexto).
+- Nunca leia, altere, feche nem salve outros documentos abertos, mesmo que apareçam em
+  list_documents; não troque o documento ativo.
+- Não crie documento novo se já houver um ativo, a não ser que o usuário peça.
+- Não salve o documento num caminho novo (saveAs, outra pasta, Documentos...) sem o usuário pedir.
+  Se o documento ainda não tem arquivo, deixe-o sem salvar e diga que ele pode salvar quando quiser.
+
 Regras de modelagem:
 - Modele SEMPRE de forma paramétrica. Toda medida importante vai numa planilha chamada "Parametros"
   (colunas Parametro / Valor / Descricao, com alias na coluna B) e os objetos usam expressões
@@ -26,8 +36,8 @@ Regras de modelagem:
 - Antes de alterar um documento já salvo, salve uma cópia de backup ao lado:
   <nome>.antes-<acao>.FCStd (use shutil.copy do arquivo salvo).
 - Depois de cada alteração: recompute, confira que não há objetos com erro, que o sólido final
-  é válido e único (Shape.isValid(), len(Solids)==1), salve o documento e confira o resultado
-  com get_view.
+  é válido e único (Shape.isValid(), len(Solids)==1), salve o documento (só se ele já tem
+  arquivo; nunca num caminho novo) e confira o resultado com get_view.
 - Código exploratório (só para ler/inspecionar) deve ser à prova de erro: envolva em try/except
   e imprima o erro, em vez de deixar a exceção estourar (cada exceção abre uma janela de erro na
   frente do usuário). Na planilha, leia com sheet.getContents("B5") / sheet.getAlias("B5"), que
@@ -36,6 +46,8 @@ Regras de modelagem:
 - Pense em impressão 3D: paredes >= 1.2 mm, evite lascas finas, avise sobre balanços grandes.
 - Se a mensagem trouxer "Contexto da seleção", é o que o usuário clicou no FreeCAD: aplique a
   ação exatamente ali.
+- Comece TODO execute_code com uma linha de comentário curta em português dizendo o que o passo
+  faz (ex.: "# Cria a planilha Parametros"). O painel mostra essa linha como título do passo.
 
 Ao terminar, responda em poucas linhas: o que mudou e qual parâmetro ajustar para mexer nisso.
 """
@@ -93,6 +105,31 @@ def attachments_dir():
     return path
 
 
+def _comma_free(path):
+    """Caminho da imagem sem vírgula (o -i do codex divide nas vírgulas): copia para a pasta de
+    anexos (ou a temporária) com um nome limpo. Se não der, devolve o original."""
+    if "," not in path:
+        return path
+    import tempfile
+    import time
+    base = os.path.basename(path).replace(",", "_")
+    for folder in (attachments_dir, tempfile.gettempdir):
+        try:
+            folder = folder()
+            if "," in folder:
+                continue
+            stamp, n = time.strftime("%Y%m%d-%H%M%S"), 0
+            dest = os.path.join(folder, f"{stamp}-{base}")
+            while os.path.exists(dest):          # duas imagens com o mesmo nome no mesmo segundo
+                n += 1
+                dest = os.path.join(folder, f"{stamp}-{n}-{base}")
+            shutil.copyfile(path, dest)
+            return dest
+        except Exception:
+            continue
+    return path
+
+
 def _failed(content):
     """O freecad-mcp devolve falhas como texto comum ("Failed to execute code: ...")."""
     if isinstance(content, str):
@@ -102,6 +139,47 @@ def _failed(content):
     else:
         return False
     return any(t.lstrip().startswith(("Failed to", "Error executing")) for t in texts)
+
+
+def _text_of(content, limit=4000):
+    """Texto de um resultado de ferramenta (string, lista MCP de blocos ou dict), para o detalhe
+    do passo no painel."""
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        out = content
+    elif isinstance(content, list):
+        parts = []
+        for c in content:
+            if isinstance(c, dict):
+                if c.get("type") == "image":
+                    parts.append("[imagem]")
+                elif c.get("text") is not None:
+                    parts.append(str(c.get("text")))
+            elif isinstance(c, str):
+                parts.append(c)
+        out = "\n".join(parts)
+    elif isinstance(content, dict):
+        if "content" in content:
+            return _text_of(content.get("content"), limit)
+        out = json.dumps(content, ensure_ascii=False, indent=1)
+    else:
+        out = str(content)
+    out = out.strip()
+    return out if len(out) <= limit else out[:limit - 1] + "…"
+
+
+def _args_of(value):
+    """Entrada de uma ferramenta como dict (alguns CLIs mandam string JSON)."""
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str) and value.strip():
+        try:
+            j = json.loads(value)
+            return j if isinstance(j, dict) else {"entrada": j}
+        except ValueError:
+            return {"entrada": value}
+    return {}
 
 
 def _images(content):
@@ -136,6 +214,10 @@ class Provider:
     def models(self):
         """[(rótulo, valor)]; valor vazio = padrão do próprio CLI."""
         return [("Padrão", "")]
+
+    def cached_models(self):
+        """Como models(), mas sem nada lento (menus montados na hora de abrir)."""
+        return self.models()
 
     def auth_args(self):
         """Argumentos de um comando rápido que diz se está logado (ou None)."""
@@ -229,7 +311,7 @@ class ClaudeProvider(Provider):
         elif kind == "assistant":
             for block in ev.get("message", {}).get("content", []):
                 if block.get("type") == "tool_use":
-                    sink.tool_start(block.get("id", ""), block.get("name", ""))
+                    sink.tool_start(block.get("id", ""), block.get("name", ""), _args_of(block.get("input")))
                 elif block.get("type") == "text" and not sink.streamed:
                     sink.text_break()
                     sink.text(block.get("text", ""))
@@ -239,7 +321,7 @@ class ClaudeProvider(Provider):
                 if block.get("type") == "tool_result":
                     sink.tool_end(block.get("tool_use_id", ""),
                                   bool(block.get("is_error")) or _failed(block.get("content")),
-                                  _images(block.get("content")))
+                                  _images(block.get("content")), _text_of(block.get("content")))
         elif kind == "result":
             sink.session(ev.get("session_id"))
             sink.done(bool(ev.get("is_error")), ev.get("result") or "")
@@ -280,9 +362,11 @@ class CodexProvider(Provider):
         args = ["exec"]
         if session:
             args += ["resume"]
-        # -i logo após o subcomando: ele aceita vários valores e engoliria o "-" do stdin
+        # -i logo após o subcomando: ele aceita vários valores e engoliria o "-" do stdin.
+        # Um "-i <caminho>" por imagem; o codex ainda divide cada valor nas vírgulas
+        # (value_delimiter=','), então caminho com vírgula vira uma cópia sem vírgula.
         for path in images:
-            args += ["-i", path]
+            args += ["-i", _comma_free(path)]
         args += ["--json", "--skip-git-repo-check",
                  # MCP do FreeCAD: sempre carregado, ferramentas visíveis e liberadas
                  "--disable", "tool_search_always_defer_mcp_tools",
@@ -291,11 +375,12 @@ class CodexProvider(Provider):
                  "-c", "mcp_servers.freecad.startup_timeout_sec=60",
                  "-c", "mcp_servers.freecad.tool_timeout_sec=300",
                  "-c", 'mcp_servers.freecad.default_tools_approval_mode="approve"',
-                 "-c", "developer_instructions=" + json.dumps(SYSTEM_PROMPT)]
-        if not session:
-            args += ["-s", "read-only"]
-            if cwd:
-                args += ["-C", cwd]
+                 "-c", "developer_instructions=" + json.dumps(SYSTEM_PROMPT),
+                 # sandbox só leitura em TODO turno: o "exec resume" não aceita -s e, sem isto, a
+                 # partir do 2º turno valeria o config (pasta "trusted" = workspace-write)
+                 "-c", 'sandbox_mode="read-only"']
+        if not session and cwd:
+            args += ["-C", cwd]
         if model:
             args += ["-m", model]
         if session:
@@ -311,7 +396,9 @@ class CodexProvider(Provider):
             sink.session(ev.get("thread_id"))
         elif kind == "item.started" and itype in ("mcp_tool_call", "command_execution"):
             name = item.get("tool") or "terminal"
-            sink.tool_start(item.get("id", ""), name)
+            inp = _args_of(item.get("arguments")) if itype == "mcp_tool_call" else \
+                ({"comando": item["command"]} if item.get("command") else {})
+            sink.tool_start(item.get("id", ""), name, inp)
         elif kind == "item.completed":
             if itype == "agent_message":
                 sink.text_break()
@@ -319,8 +406,14 @@ class CodexProvider(Provider):
             elif itype in ("mcp_tool_call", "command_execution"):
                 result = item.get("result") or {}
                 content = result.get("content") if isinstance(result, dict) else None
-                sink.tool_end(item.get("id", ""), bool(item.get("error")) or _failed(content),
-                              _images(result.get("content") if isinstance(result, dict) else None))
+                err = item.get("error")
+                if err:
+                    output = err.get("message", "") if isinstance(err, dict) else str(err)
+                elif itype == "command_execution":
+                    output = _text_of(item.get("aggregated_output"))
+                else:
+                    output = _text_of(content)
+                sink.tool_end(item.get("id", ""), bool(err) or _failed(content), _images(content), output)
         elif kind == "turn.completed":
             sink.done(False, "")
         elif kind in ("turn.failed", "error"):
@@ -340,7 +433,19 @@ class AntigravityProvider(Provider):
         return _which(["agy"], [WINGET + r"\Google.AntigravityCLI_*\agy.exe",
                                 r"%LOCALAPPDATA%\Antigravity\agy.exe"])
 
+    _fetch = None                              # QProcess de "agy models" em andamento
+
+    @staticmethod
+    def _parse_models(out):
+        models = [("Padrão", "")]
+        for line in out.splitlines():
+            if "\t" in line:
+                slug, label = line.split("\t", 1)
+                models.append((label.strip(), slug.strip()))
+        return models
+
     def models(self):
+        """Síncrono (até 20 s na 1ª vez): o painel usa cached_models() + fetch_models()."""
         if AntigravityProvider._models is None:
             AntigravityProvider._models = [("Padrão", "")]
             exe = self.exe()
@@ -350,13 +455,43 @@ class AntigravityProvider(Provider):
                     out = subprocess.run([exe, "models"], capture_output=True, text=True,
                                          timeout=20, encoding="utf-8",
                                          creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout
-                    for line in out.splitlines():
-                        if "\t" in line:
-                            slug, label = line.split("\t", 1)
-                            AntigravityProvider._models.append((label.strip(), slug.strip()))
+                    AntigravityProvider._models = self._parse_models(out)
                 except Exception:
                     pass
         return AntigravityProvider._models
+
+    def cached_models(self):
+        return AntigravityProvider._models or [("Padrão", "")]
+
+    def fetch_models(self, parent, done):
+        """Lista os modelos sem travar a interface; done() roda quando a lista chega.
+        Devolve False se não há o que buscar (lista já pronta ou CLI ausente)."""
+        if AntigravityProvider._models is not None:
+            return False
+        if AntigravityProvider._fetch is not None:
+            return True
+        exe = self.exe()
+        if not exe:
+            AntigravityProvider._models = [("Padrão", "")]
+            return False
+        proc = QtCore.QProcess(parent)
+        AntigravityProvider._fetch = proc
+
+        def finish(*_):
+            if AntigravityProvider._fetch is not proc:
+                return
+            AntigravityProvider._fetch = None
+            out = bytes(proc.readAllStandardOutput()).decode("utf-8", "replace")
+            AntigravityProvider._models = self._parse_models(out)
+            proc.deleteLater()
+            done()
+
+        proc.finished.connect(finish)
+        proc.errorOccurred.connect(lambda err: finish() if err == QtCore.QProcess.FailedToStart else None)
+        QtCore.QTimer.singleShot(20000, proc, lambda: proc.kill()
+                                 if proc.state() != QtCore.QProcess.NotRunning else None)
+        proc.start(exe, ["models"])
+        return True
 
     def build(self, prompt, model, plan, session, first_turn, cwd, images=()):
         text = (SYSTEM_PROMPT + "\n---\n\n" if first_turn else "") + (PLAN_NOTE if plan else "") + prompt
@@ -381,6 +516,8 @@ class AntigravityProvider(Provider):
             sink.session(ev.get("conversation_id"))
         elif kind == "step_update":
             step = ev.get("step_update", {})
+            # o id também vem aqui: um turno interrompido antes do "result" ainda pode ser retomado
+            sink.session(step.get("conversation_id"))
             idx = str(step.get("step_index"))
             stype = step.get("step_type")
             if stype == "agent_response":
@@ -395,21 +532,51 @@ class AntigravityProvider(Provider):
                 name = params.get("ToolName") or step.get("tool_name") or info.get("name") or "ferramenta"
                 if idx not in sink.tools_seen:
                     sink.tools_seen.add(idx)
-                    sink.tool_start(idx, name)
+                    sink.tool_start(idx, name, {k: v for k, v in params.items() if k != "ToolName"})
                 if step.get("state") == "DONE":
-                    sink.tool_end(idx, _failed(str(info.get("output", ""))), [])
+                    out = _text_of(info.get("output"))
+                    sink.tool_end(idx, _failed(out), [], out)
         elif kind == "result":
             res = ev.get("result", {})
             sink.session(res.get("conversation_id"))
             denied = res.get("denied_actions")
+            failed = res.get("status") != "SUCCESS"
             msg = res.get("response") or ""
             if denied:
                 msg = "O Antigravity bloqueou uma ação por falta de permissão: " + \
                       ", ".join(d.get("display_name", "?") for d in denied)
-            sink.done(res.get("status") != "SUCCESS" or bool(denied), msg)
+            elif failed and not msg.strip():
+                msg = self.error_message(res)
+            sink.done(failed or bool(denied), msg)
+
+    ERRORS_PT = {
+        "there was a network issue connecting to the server, please try again.":
+            "houve um problema de rede ao conectar ao servidor. Tente de novo.",
+    }
+
+    def error_message(self, res):
+        """Mensagem em português para um "result" sem resposta (nunca só "Algo deu errado")."""
+        err = res.get("error")
+        if isinstance(err, dict):
+            err = err.get("message") or err.get("detail") or json.dumps(err, ensure_ascii=False)
+        err = str(err or "").strip()
+        if not err:
+            status = res.get("status") or "sem status"
+            return f"O Antigravity falhou ({status}) sem explicar o motivo. Veja o log do último pedido."
+        return "O Antigravity falhou: " + self.ERRORS_PT.get(err.lower(), err)
 
 
 PROVIDERS = [ClaudeProvider(), CodexProvider(), AntigravityProvider()]
+
+try:  # IA local (Ollama / servidor compatível com OpenAI), roda dentro do FreeCAD
+    from chatcad_local import LocalProvider
+    PROVIDERS.append(LocalProvider())
+except Exception as _e:  # nunca derrubar os outros provedores por causa dele
+    try:
+        import FreeCAD
+        FreeCAD.Console.PrintWarning(f"Chat CAD: IA local indisponível: {_e}\n")
+    except Exception:
+        pass
 
 
 def provider(key):
@@ -427,10 +594,25 @@ class AuthCheck(QtCore.QObject):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.prov = None
         self.proc = None
+        self._catalog = None
+        self._gen = 0                  # cada run() é uma geração; resultado de geração velha é ignorado
+        self._catalog_gen = -1
 
     def run(self, prov):
+        self._gen += 1
+        gen = self._gen
         self.prov = prov
+        self._drop_proc()                        # um processo por vez; o anterior não fala mais
+        if getattr(prov, "in_process", False):   # IA local: confere o servidor e lista os modelos
+            from chatcad_local import Catalog
+            if self._catalog is None or self._catalog.prov is not prov:
+                self._catalog = Catalog(prov, self)
+                self._catalog.ready.connect(lambda ok, msg, c=self._catalog: self._catalog_done(c, ok, msg))
+            self._catalog_gen = gen
+            self._catalog.refresh()
+            return
         exe = prov.exe()
         if not exe:
             self.finished.emit(False, f"{prov.name} não está instalado neste computador.")
@@ -438,15 +620,54 @@ class AuthCheck(QtCore.QObject):
         if prov.auth_args() is None:
             self.finished.emit(True, "")
             return
-        self.proc = QtCore.QProcess(self)
-        self.proc.finished.connect(self._done)
-        self.proc.start(exe, prov.auth_args())
+        proc = self.proc = QtCore.QProcess(self)
+        # o provedor e o processo vão presos no slot: nunca ler self.prov/self.proc de outra geração
+        proc.finished.connect(lambda *_, p=proc, pv=prov, g=gen: self._done(p, pv, g))
+        proc.errorOccurred.connect(lambda err, p=proc, pv=prov, g=gen: self._error(p, pv, g, err))
+        proc.start(exe, prov.auth_args())
 
-    def _done(self, *_):
-        out = bytes(self.proc.readAllStandardOutput() + self.proc.readAllStandardError()).decode(
+    def _catalog_done(self, catalog, ok, msg):
+        # resultado do catálogo de antes de trocar de provedor: não é deste provedor
+        if catalog is self._catalog and self._catalog_gen == self._gen and self.prov is catalog.prov:
+            self.finished.emit(ok, msg)
+
+    def _drop_proc(self):
+        proc, self.proc = self.proc, None
+        if proc is None:
+            return
+        for sig in (proc.finished, proc.errorOccurred):
+            try:
+                sig.disconnect()
+            except (RuntimeError, TypeError):
+                pass
+        if proc.state() != QtCore.QProcess.NotRunning:
+            proc.finished.connect(proc.deleteLater)
+            proc.kill()
+        else:
+            proc.deleteLater()
+
+    def _release(self, proc):
+        if proc is self.proc:
+            self.proc = None
+        proc.deleteLater()
+
+    def _done(self, proc, prov, gen):
+        out = bytes(proc.readAllStandardOutput() + proc.readAllStandardError()).decode(
             "utf-8", "replace")
-        ok = self.prov.auth_ok(out)
-        self.finished.emit(ok, "" if ok else f"{self.prov.name} não está conectado.")
+        self._release(proc)
+        if gen != self._gen:
+            return
+        ok = prov.auth_ok(out)
+        self.finished.emit(ok, "" if ok else f"{prov.name} não está conectado.")
+
+    def _error(self, proc, prov, gen, err):
+        # FailedToStart não vem seguido de finished: sem isto o status ficaria "verificando…" para sempre
+        if err != QtCore.QProcess.FailedToStart:
+            return
+        msg = f"Não consegui iniciar o {prov.name}: {proc.errorString()}"
+        self._release(proc)
+        if gen == self._gen:
+            self.finished.emit(False, msg)
 
 
 class ClaudeRunner(QtCore.QObject):
@@ -454,10 +675,12 @@ class ClaudeRunner(QtCore.QObject):
 
     textDelta = QtCore.Signal(str)
     toolStarted = QtCore.Signal(str, str, dict)   # id, nome, input
-    toolFinished = QtCore.Signal(str, bool, list)  # id, erro?, imagens
+    toolFinished = QtCore.Signal(str, bool, list, str)  # id, erro?, imagens, saída (texto, até 4000)
+    thinkingDelta = QtCore.Signal(str)             # raciocínio em streaming (se o agente mandar)
     turnBreak = QtCore.Signal()
     finished = QtCore.Signal(dict)                 # {"is_error": bool, "result": str}
     failed = QtCore.Signal(str)
+    idle = QtCore.Signal()                         # o processo do CLI saiu de vez (busy() já é False)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -472,6 +695,31 @@ class ClaudeRunner(QtCore.QObject):
         self.streamed = False
         self.last_step = None
         self.tools_seen = set()
+        self._agent = None
+
+    def _local(self):
+        """Agente da IA local (criado na primeira vez), com os mesmos sinais deste runner."""
+        if self._agent is None or self._agent.prov is not self.prov:
+            from chatcad_local import LocalAgent
+            self._agent = LocalAgent(self.prov, parent=self)
+            for name in ("textDelta", "toolStarted", "turnBreak", "finished", "failed", "thinkingDelta"):
+                if hasattr(self._agent, name):
+                    getattr(self._agent, name).connect(getattr(self, name).emit)
+            # o agente local manda (id, erro, imagens); a saída em texto é opcional
+            self._agent.toolFinished.connect(
+                lambda tid, err, imgs, out="": self.toolFinished.emit(tid, bool(err), list(imgs or []), out or ""))
+        return self._agent
+
+    def turn_stats(self):
+        """Estatísticas do agente local: [(passo, {"output_tokens", "output_s", "prompt_tokens", ...})]."""
+        return list(getattr(self._agent, "stats", None) or []) if self._in_process() and self._agent else []
+
+    def _in_process(self):
+        return getattr(self.prov, "in_process", False)
+
+    def prewarm(self, model=""):
+        if self._in_process():
+            self._local().prewarm(model)
 
     # chamadas usadas pelos provedores ------------------------------------------------
     def session(self, sid):
@@ -484,11 +732,11 @@ class ClaudeRunner(QtCore.QObject):
     def text(self, chunk):
         self.textDelta.emit(chunk)
 
-    def tool_start(self, tid, name):
-        self.toolStarted.emit(str(tid), name, {})
+    def tool_start(self, tid, name, inp=None):
+        self.toolStarted.emit(str(tid), name, dict(inp) if isinstance(inp, dict) else {})
 
-    def tool_end(self, tid, error, images):
-        self.toolFinished.emit(str(tid), error, images)
+    def tool_end(self, tid, error, images, output=""):
+        self.toolFinished.emit(str(tid), bool(error), list(images or []), str(output or "")[:4000])
 
     def done(self, error, msg):
         if not self._done:
@@ -502,56 +750,116 @@ class ClaudeRunner(QtCore.QObject):
             self.prov = prov
 
     def busy(self):
+        if self._in_process():
+            return self._local().busy()
         return self.proc is not None and self.proc.state() != QtCore.QProcess.NotRunning
 
     def reset(self):
+        if self._agent is not None:
+            self._agent.reset()
         self.stop()
+        self._detach()
         self.session_id = None
         self.turns = 0
 
     def stop(self):
-        if self.busy():
-            self.proc.kill()
+        if self._in_process():
+            self._local().stop()
+        elif self.busy():
+            self._done = True               # quem parou já avisou: o fim do processo não vira "Interrompido."
+            self._detach()
 
-    def send(self, prompt, model="", plan=False, cwd=None, images=()):
+    def _detach(self):
+        """Larga o processo atual: mata se ainda roda e ignora o que ele mandar depois.
+        busy() fica False na hora (o kill() do QProcess só termina no próximo giro do loop)."""
+        proc, self.proc = self.proc, None
+        if proc is None:
+            return
+        for sig in (proc.readyReadStandardOutput, proc.readyReadStandardError, proc.finished):
+            try:
+                sig.disconnect()
+            except (RuntimeError, TypeError):
+                pass
+        if proc.state() != QtCore.QProcess.NotRunning:
+            proc.finished.connect(proc.deleteLater)
+            proc.kill()
+        else:
+            proc.deleteLater()
+
+    def send(self, prompt, model="", plan=False, cwd=None, images=(), use_selection=True):
+        if self._in_process():
+            # a IA local monta o contexto sozinha: precisa saber se o usuário ignorou a seleção
+            self._local().send(prompt, model=model, plan=plan, cwd=cwd, images=images,
+                               use_selection=use_selection)
+            return
         exe = self.prov.exe()
         if not exe:
             self.failed.emit(f"{self.prov.name} não está instalado.")
             return
+        # "primeiro turno" = ainda sem conversa para retomar (um turno que falhou antes de ter
+        # id não conta: o próximo abre conversa nova e precisa do SYSTEM_PROMPT de novo)
         args, env_extra, stdin_text = self.prov.build(
-            prompt, model, plan, self.session_id, self.turns == 0, cwd, list(images))
+            prompt, model, plan, self.session_id, not self.session_id, cwd, list(images))
         self.turns += 1
         self._buf = b""
         self._stderr = b""
+        self._raw = []
         self._done = False
         self.streamed = False
         self.last_step = None
         self.tools_seen = set()
 
-        self.proc = QtCore.QProcess(self)
+        self._detach()                      # nunca dois processos na mesma conversa
+        proc = self.proc = QtCore.QProcess(self)
         env = QtCore.QProcessEnvironment.systemEnvironment()
         env.insert("PATH", clean_path(env.value("PATH")))
         for k, v in env_extra.items():
             env.insert(k, v)
-        self.proc.setProcessEnvironment(env)
+        proc.setProcessEnvironment(env)
         if cwd and os.path.isdir(cwd):
-            self.proc.setWorkingDirectory(cwd)
-        self.proc.readyReadStandardOutput.connect(self._read)
-        self.proc.readyReadStandardError.connect(self._read_err)
-        self.proc.finished.connect(self._exited)
-        self.proc.start(exe, args)
+            proc.setWorkingDirectory(cwd)
+        proc.readyReadStandardOutput.connect(self._read)
+        proc.readyReadStandardError.connect(self._read_err)
+        proc.finished.connect(self._exited)
+        proc.errorOccurred.connect(lambda err, p=proc: self._start_error(p, err))
+        proc.start(exe, args)
+        if self.proc is not proc:           # não iniciou (o _start_error já avisou e largou o processo)
+            return
         if stdin_text is not None:
-            self.proc.write(stdin_text.encode("utf-8"))
-        self.proc.closeWriteChannel()
+            proc.write(stdin_text.encode("utf-8"))
+        proc.closeWriteChannel()
+
+    def _start_error(self, proc, err):
+        """FailedToStart (exe sumiu, linha de comando longa demais...) não emite finished: sem isto
+        o turno ficaria pendurado, sem resposta nem erro."""
+        if err != QtCore.QProcess.FailedToStart or proc is not self.proc:
+            return
+        msg = f"Não consegui iniciar o {self.prov.name}: {proc.errorString()}"
+        self.turns = max(0, self.turns - 1)
+        self._done = True
+        for sig in (proc.readyReadStandardOutput, proc.readyReadStandardError, proc.finished,
+                    proc.errorOccurred):
+            try:
+                sig.disconnect()
+            except (RuntimeError, TypeError):
+                pass
+        self.proc = None
+        proc.deleteLater()
+        self.failed.emit(msg)
 
     def _read_err(self):
-        self._stderr = (self._stderr + bytes(self.proc.readAllStandardError()))[-20000:]
+        if self.proc is not None:
+            self._stderr = (self._stderr + bytes(self.proc.readAllStandardError()))[-20000:]
 
     def _read(self):
+        if self.proc is None:
+            return
         self._buf += bytes(self.proc.readAllStandardOutput())
         while b"\n" in self._buf:
             line, self._buf = self._buf.split(b"\n", 1)
             line = line.strip()
+            if line:
+                self._raw = (self._raw + [line[:400]])[-40:]   # últimas linhas, para o log
             if not line.startswith(b"{"):
                 continue
             try:
@@ -571,9 +879,12 @@ class ClaudeRunner(QtCore.QObject):
                       encoding="utf-8") as f:
                 f.write(f"{self.prov.name} exit={code}\n{self.proc.arguments()}\n\n")
                 f.write(self._stderr.decode("utf-8", "replace"))
+                f.write("\n\n--- últimas linhas da saída ---\n")
+                f.write("\n".join(r.decode("utf-8", "replace") for r in getattr(self, "_raw", [])))
         except Exception:
             pass
-        if self._done:
+        if self._done:                      # o "result" chegou antes de o processo sair
+            self.idle.emit()
             return
         if status != QtCore.QProcess.NormalExit:
             self.done(True, "Interrompido.")
@@ -583,4 +894,10 @@ class ClaudeRunner(QtCore.QObject):
             self.failed.emit(err[-600:] or f"{self.prov.name} terminou com erro ({code}).")
             self._done = True
         else:
-            self.done(False, "")
+            # saiu "com sucesso" mas sem o evento final (ex.: sem internet, CLI desatualizado):
+            # nunca mostrar "concluído" vazio; diz o que o CLI escreveu por último
+            last = next((r.decode("utf-8", "replace") for r in reversed(getattr(self, "_raw", []))
+                         if not r.startswith(b"{")), "")
+            detail = (err or last)[-400:]
+            self.done(True, f"O {self.prov.name} terminou sem responder."
+                            + (f" Mensagem: {detail}" if detail else " Confira a internet e o login, e tente de novo."))

@@ -17,8 +17,12 @@
   <tag>chat</tag>
 
   <content>
-    <other>
+    <!-- Declarado como "workbench" só para o FreeCAD executar o InitGui.py: com package.xml, o
+         FreeCAD 1.x roda o InitGui.py apenas de conteúdos do tipo workbench. Sem <classname>, nenhuma
+         bancada nova é criada; o InitGui.py só instala o painel lateral. -->
+    <workbench>
       <name>Chat CAD</name>
-    </other>
+      <subdirectory>./</subdirectory>
+    </workbench>
   </content>
 </package>

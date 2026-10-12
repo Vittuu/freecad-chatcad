@@ -2,3 +2,5 @@ __pycache__/
 *.pyc
 *.FCBak
 .DS_Store
+tests/fc_results.txt
+tests/live_result_*.txt
